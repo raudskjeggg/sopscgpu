@@ -14,9 +14,9 @@ __global__ void force_flush (float4 *f, int N) {
     f[id].z=0.;
 }
 
-__global__ void rand_init (curandStatePhilox4_32_10_t* states) {
+__global__ void rand_init (int seed, curandStatePhilox4_32_10_t* states) {
 	int id = blockIdx.x*blockDim.x + threadIdx.x;
-	curand_init(1234, id, 0, &states[id]);
+	curand_init(seed, id, 0, &states[id]);
 }
 
 __global__ void integrate(float4 *r, float4 *forces, int N, curandStatePhilox4_32_10_t* states) {
@@ -34,7 +34,7 @@ __global__ void integrate(float4 *r, float4 *forces, int N, curandStatePhilox4_3
     ri.x+=dr.x;
     ri.y+=dr.y;
     ri.z+=dr.z;
-    ri.w=dr.x*dr.x+dr.y*dr.y+dr.z*dr.z;     //Save for calculation of diffusion constant / temperature / kinetic energy
+    ri.w=dr.x*dr.x+dr.y*dr.y+dr.z*dr.z;     //Save velocity squared for calculation of diffusion constant / temperature / kinetic energy
     r[id]=ri;
 }
 
@@ -125,7 +125,8 @@ __global__ void SoftSphereForce(float4 *r, float4 *forces, InteractionList<int> 
         r2.w=sigma2/(r2.x*r2.x+r2.y*r2.y+r2.z*r2.z);    // squared
         if (r2.w>ss_c.CutOffFactor2inv) {               // Potential is cut off at rcut=CutOffFactor*sigma => sigma^2/r^2 should be > 1/CutOffFactor2
             r2.w*=r2.w;                                 // to the 4th
-            r2.w*=r2.w*ss_c.Minus6eps/sigma2;           // to the 8th
+            r2.w*=r2.w;                                 // to the 8th
+            r2.w=ss_c.Minus6eps/sigma2*(r2.w+ss_c.CutOffFactor8inv);
             f.x+=r2.x*r2.w;
             f.y+=r2.y*r2.w;
             f.z+=r2.z*r2.w;
@@ -157,7 +158,8 @@ __global__ void SoftSphereEnergy(float4 *r, InteractionList<int> list, float *si
         sigma2*=sigma2;
         r2.w=sigma2/(r2.x*r2.x+r2.y*r2.y+r2.z*r2.z); // squared
         if (r2.w>ss_c.CutOffFactor2inv)              // Potential is cut off at rcut=CutOffFactor*sigma => sigma^2/r^2 should be > 1/CutOffFactor2
-            energy+=ss_c.eps*r2.w*r2.w*r2.w;         // to the 6th
+            //energy+=ss_c.eps*r2.w*r2.w*r2.w;         // to the 6th
+            energy+=ss_c.eps*(r2.w*r2.w*r2.w-ss_c.CutOffFactor6inv);
     }
     r[i].w=energy;
 }
@@ -186,7 +188,8 @@ __global__ void NativeSubtractSoftSphereForce(float4* r, float4* forces, Interac
         r2.w=sigma2/(r2.x*r2.x+r2.y*r2.y+r2.z*r2.z); // squared
         if (r2.w>ss_c.CutOffFactor2inv) {
             r2.w*=r2.w;                                  // to the 4th
-            r2.w*=r2.w*ss_c.Minus6eps/sigma2;           // to the 8th
+            r2.w*=r2.w;                                 // to the 8th
+            r2.w=ss_c.Minus6eps/sigma2*(r2.w+ss_c.CutOffFactor8inv);
             f.x-=r2.x*r2.w;
             f.y-=r2.y*r2.w;
             f.z-=r2.z*r2.w;
@@ -219,7 +222,8 @@ __global__ void NativeSubtractSoftSphereForce(float4* r, float4* forces, Interac
         r2.w=sigma2/(r2.x*r2.x+r2.y*r2.y+r2.z*r2.z); // squared
         if (r2.w>ss_c.CutOffFactor2inv) {
             r2.w*=r2.w;                                  // to the 4th
-            r2.w*=Delta*r2.w*ss_c.Minus6eps/sigma2;           // to the 8th
+            r2.w*=r2.w;                                 // to the 8th
+            r2.w=Delta*ss_c.Minus6eps/sigma2*(r2.w+ss_c.CutOffFactor8inv);
             f.x-=r2.x*r2.w;
             f.y-=r2.y*r2.w;
             f.z-=r2.z*r2.w;
@@ -251,7 +255,7 @@ __global__ void NativeSubtractSoftSphereEnergy(float4 *r, InteractionList<nc> li
         sigma2*=sigma2;
         r2.w=sigma2/(r2.x*r2.x+r2.y*r2.y+r2.z*r2.z);      // squared
         if (r2.w>ss_c.CutOffFactor2inv)
-            energy-=ss_c.eps*r2.w*r2.w*r2.w;              // to the 6th
+            energy-=ss_c.eps*(r2.w*r2.w*r2.w-ss_c.CutOffFactor6inv);              // to the 6th
     }
     r[i].w=energy;
 }
@@ -401,6 +405,39 @@ __global__ void SoftSphereNeighborList(float4* r, InteractionList<int> list) {
              ) and
             ((j+list.N/2)!=i) and                                 //exclude covalently bonded bb and ss beads
             ((i+list.N/2)!=j)
+            ) {
+            
+            list.map_d[neighbors*list.N+i]=j;
+            neighbors++;
+        }
+    }
+    list.count_d[i]=neighbors;
+    
+}
+
+__global__ void SoftSphereNeighborListMultTraj(float4* r, InteractionList<int> list, int Ntraj) {
+    int i = blockIdx.x*blockDim.x + threadIdx.x;
+    if (i>=list.N) return;
+    
+    //float4 ri=r[i];
+    float4 ri=tex1Dfetch(r_t,i);
+    int neighbors=0;
+    for (int j=0;j<list.N;j++) {
+        //float4 r2=r[j];
+        float4 r2=tex1Dfetch(r_t,j);
+        r2.x-=ri.x;
+        r2.y-=ri.y;
+        r2.z-=ri.z;
+        r2.w=r2.x*r2.x+r2.y*r2.y+r2.z*r2.z;
+        if (
+            (r2.w<ss_c.Rcut2) and
+            (
+             (abs(j-i)>1) or
+             ((abs(j-i)>0) and (((i % Ntraj)>=Ntraj/2) or ((j % Ntraj)>=Ntraj/2)))  //bb with ss or ss with ss on neighboring residues (this actually excludes terminal beads of different chains, that are not bound)
+             ) and
+            ((j+Ntraj/2)!=i) and                                 //exclude covalently bonded bb and ss beads
+            ((i+Ntraj/2)!=j) and
+            ((i/Ntraj)==(j/Ntraj))								 //make sure beads belong to the same trajectory/replica
             ) {
             
             list.map_d[neighbors*list.N+i]=j;

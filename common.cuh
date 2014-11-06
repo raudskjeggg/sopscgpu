@@ -12,20 +12,26 @@
 #include<stdio.h>
 #include "cuda.h"
 
-int const BLOCK_SIZE=512;
+int BLOCK_SIZE=512;
 int const MaxBondsPerAtom=4;
 int const MaxNCPerAtom=128;
 int const MaxNeighbors=1024;
 int const MaxSoftSphere=16384;
 
-float const NumSteps=2e+7;
-int const StartingStateEquilSteps=1000000;
-int const SwitchingSteps=10000;
+float h=0.05;
+float zeta=50.;
+float kT=0.59;
+
+float NumSteps=3e+4;
+int const StartingStateEquilSteps=20000;//1000000;
+int const SwitchingSteps=10000;//10000;
 int const SwitchingStride=10;
 
-int const neighfreq=10;
-int const outputfreq=1000;
-int const trajfreq=10000;
+int neighfreq=10;
+int outputfreq=1000;
+int trajfreq=10000;
+int ntraj=1;
+int seed=1234;
 
 struct bond { //For bond map
     int i2;
@@ -41,10 +47,10 @@ struct __align__(16) nc { //For native contact map
 
 
 struct BrDynPar {
-	static float const kT=0.59;
+	float kT;
 	//float h;
 	//float zeta;
-	static float const hoz=0.001; //timestep over friction constant
+	float hoz; //timestep over friction constant
 	float Gamma;
 };
 
@@ -58,6 +64,9 @@ struct SoftSphere {
     static float const CutOffFactor=3.; // Interaction cut off at 3 sigma
     float Rcut2;
     float CutOffFactor2inv;
+    float CutOffFactor6inv;
+    float CutOffFactor8inv;
+    float MaxSigma;
 };
 
 SoftSphere ss_h;

@@ -33,21 +33,21 @@ public:
     int N;
     int Nmax;
     
-    void AllocateInteractionListOnHost() {
+    void AllocateOnHost() {
         
         map_h=(T*)malloc(Nmax*N*sizeof(T));
         count_h=(int*)calloc(N, sizeof(int));
         
     }
     
-    void FreeInteractionListOnHost() {
+    void FreeOnHost() {
         
         free(map_h);
         free(count_h);
         
     }
     
-    void AllocateInteractionListOnDevice(std::string s) {
+    void AllocateOnDevice(std::string s) {
         
         cudaMalloc((void**)&map_d, Nmax*N*sizeof(T));
         checkCUDAError(("Allocate "+s+" map").c_str());
@@ -57,7 +57,7 @@ public:
         
     }
     
-    void FreeInteractionListOnDevice(std::string s) {
+    void FreeOnDevice(std::string s) {
         
         cudaFree(map_d);
         checkCUDAError(("Free "+s+" map").c_str());
@@ -67,7 +67,7 @@ public:
         
     }
     
-    void CopyInteractionListToDevice(std::string s) {
+    void CopyToDevice(std::string s) {
         
         cudaMemcpy(map_d, map_h, Nmax*N*sizeof(T), cudaMemcpyHostToDevice);
         checkCUDAError(("Copy "+s+" map").c_str());
@@ -77,7 +77,7 @@ public:
         
     }
     
-    void CopyInteractionListToHost(std::string s) {
+    void CopyToHost(std::string s) {
         
         cudaMemcpy(map_h, map_d, Nmax*N*sizeof(T), cudaMemcpyDeviceToHost);
         checkCUDAError(("Copy "+s+" map").c_str());
@@ -94,49 +94,138 @@ public:
         }
     }
     
-    InteractionList<T>(FILE *ind,int N_in, int Nmax_in, int Nb) {
+    InteractionList<T>() {};
+
+};
+
+class InteractionListBond: public InteractionList<bond> {
+
+public:
+    
+    InteractionListBond(FILE *ind, int N_in, int Nmax_in, int Nb, std::string msg, int ntraj) {
         
-        N=N_in; Nmax=Nmax_in;
-        AllocateInteractionListOnDevice("bonds");
-        AllocateInteractionListOnHost();
+        N=N_in*ntraj; Nmax=Nmax_in;
+        AllocateOnDevice(msg);
+        AllocateOnHost();
         
-        // Read bonds and their lengths. Build bonds map. If each bead has a first, second etc... bond, the structure of array is: N first bonds, then N second bonds etc. (see InteractionList class description) This following loop constructs the map from list of bonds.
-        
-        printf("Reading bond list\n");
+        printf("Reading bond list of %d bonds\n",Nb);
         for (int k=0; k<Nb; k++) {
             int i,j;
             bond bk;
             if (fscanf(ind,"%d %d %f", &i,&j,&(bk.l0))==EOF)
                 printf("Premature end of file at line %d", k);
             
-            bk.i2=j;
-            map_h[N*count_h[i]+i]=bk;
-            count_h[i]++;
-            
-            bk.i2=i;
-            map_h[N*count_h[j]+j]=bk;
-            count_h[j]++;
-            
-            CheckNmaxHost(i,"covalent bonds");
-            CheckNmaxHost(j,"covalent bonds");
+            for (int itraj=0; itraj<ntraj; itraj++) {
+                
+                bk.i2=j;
+                map_h[N*count_h[i]+i]=bk;
+                count_h[i]++;
+                
+                bk.i2=i;
+                map_h[N*count_h[j]+j]=bk;
+                count_h[j]++;
+                
+                CheckNmaxHost(i,msg);
+                CheckNmaxHost(j,msg);
+                
+                i+=N_in;
+                j+=N_in;
+            }
         }
         
-        // Copy bonds data to device
-        CopyInteractionListToDevice("bond");
-        FreeInteractionListOnHost();
+        CopyToDevice(msg);
+        FreeOnHost();
     }
     
-    InteractionList<T>() {
+};
+
+class InteractionListNC: public InteractionList<nc> {
+    
+public:
+    
+    InteractionListNC(FILE *ind,int N_in, int Nmax_in, int Nnc, std::string msg, int ntraj) {
         
-    };
+        N=N_in*ntraj;
+        Nmax=Nmax_in;
+        
+        AllocateOnDevice(msg);
+        AllocateOnHost();
+        
+        printf("Reading %d native contacts\n",Nnc);
+        for (int k=0; k<Nnc; k++) {
+            int i,j;
+            float r0,eps;
+            if (fscanf(ind,"%d %d %f %f", &i,&j,&r0,&eps)==EOF)
+                printf("Premature end of file at line %d", k);
+            
+            nc nck;
+            nck.r02=r0*r0;
+            nck.factor=12.0*eps/r0/r0;
+            nck.epsilon=eps;
+            
+            for (int itraj=0; itraj<ntraj; itraj++) {
+                nck.i2=j;
+                map_h[N*count_h[i]+i]=nck;
+                count_h[i]++;
+                
+                nck.i2=i;
+                map_h[N*count_h[j]+j]=nck;
+                count_h[j]++;
+                
+                CheckNmaxHost(i,msg);
+                CheckNmaxHost(j,msg);
+                
+                i+=N_in;
+                j+=N_in;
+            }
+        }
+        
+        CopyToDevice(msg);
+        FreeOnHost();
 
-    
+    }
 };
 
-class InteractionListBond:InteractionList<bond> {
+class InteractionListSB: public InteractionList<bond> {
     
+public:
+    
+    InteractionListSB(FILE *ind,int N_in, int Nmax_in, int Nsb, std::string msg, int ntraj) {
+        
+        N=N_in*ntraj; Nmax=Nmax_in;
+        AllocateOnDevice(msg);
+        AllocateOnHost();
+        
+        printf("Reading %d salt bridges\n",Nsb);
+        for (int k=0; k<Nsb; k++) {
+            int i,j;
+            float qiqj;
+            bond sbk;
+            if (fscanf(ind,"%d %d %f", &i,&j,&qiqj)==EOF)
+                printf("Premature end of file at line %d", k);
+            
+            for (int itraj=0; itraj<ntraj; itraj++) {
+                
+                sbk.l0=els_h.prefactor*qiqj;
+                sbk.i2=j;
+                
+                map_h[N*count_h[i]+i]=sbk;
+                count_h[i]++;
+                
+                sbk.i2=i;
+                map_h[N*count_h[j]+j]=sbk;
+                count_h[j]++;
+                
+                CheckNmaxHost(i,msg);
+                CheckNmaxHost(j,msg);
+                i+=N_in;
+                j+=N_in;
+            }
+        }
+        
+        CopyToDevice(msg);
+        FreeOnHost();
+    }
 };
-
-//__device__ __constant__ InteractionList<int> nl_c;
 
 #endif /* defined(____InteractionList__) */

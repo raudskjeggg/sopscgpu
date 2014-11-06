@@ -27,7 +27,7 @@ CU_SOURCES			:= main.cu
 C_OBJS				:= $(patsubst %.c, $(OBJDIR)/%.c.o, $(C_SOURCES))
 CU_OBJS				:= $(patsubst %.cu, $(OBJDIR)/%.cu.o, $(CU_SOURCES))
  
-$(BIN): makedirs clean $(CU_OBJS)
+$(BIN): makedirs $(CU_OBJS)
 	$(LINKER) -o $(BIN) $(CU_OBJS) $(C_SOURCES) $(LDFLAGS) $(INCLUDES) $(LIBS)
  
 $(OBJDIR)/%.c.o: $(C_SOURCES)
@@ -48,6 +48,8 @@ run: $(BIN)
 clean:
 	rm -f $(BIN) sop-top $(OBJDIR)/*.o
 	
-install:
+install: $(BIN) xyz2fullpdb.py pdb2sop.py 
 #	cp $(BIN) /usr/bin/$(BIN)
 	cp $(BIN) /home/zhur/bin/$(BIN)
+	cp pdb2sop.py /home/zhur/bin/
+	cp xyz2fullpdb.py /home/zhur/bin/
