@@ -5,16 +5,21 @@ from numpy import *
 import re
 import sys
 
-if len(sys.argv)<4:
-	print "Usage: initialstructure.pdb finalstructure.pdb inputfile.sopscgpu"
-	exit(1)
+# if len(sys.argv)<4:
+# 	print "Usage: initialstructure.pdb finalstructure.pdb inputfile.sopscgpu"
+# 	exit(1)
+# outputname=sys.argv[3]
+# PDBname2=sys.argv[2]
+# PDBname=sys.argv[1]
 
-outputname=sys.argv[3]
-PDBname2=sys.argv[2]
+if len(sys.argv)<2:
+	print "Usage: structure.pdb inputfile.sopscgpu"
+	exit(1)
+outputname=sys.argv[2]
 PDBname=sys.argv[1]
 
 print "PDB 1 ",PDBname
-print "PDB 2 ",PDBname2
+#print "PDB 2 ",PDBname2
 print "SOP-SC GPU input file ", outputname
 
 #Protein residue names
@@ -123,13 +128,13 @@ structure=parser.get_structure('Starting',PDBname)
 cas=[];casv=[];cbs=[];cbsv=[];terres=[];seq=[];ncs=[];sbs=[]
 pdb2sop(structure,cas,casv,cbs,cbsv,terres,seq,ncs,sbs);
 
-#Get CAs, CBs, native contacts and salt bridges for final structure
-structure=parser.get_structure('Final',PDBname2)
-cas2=[];casv2=[];cbs2=[];cbsv2=[];terres2=[];seq2=[];ncs2=[];sbs2=[]
-pdb2sop(structure,cas2,casv2,cbs2,cbsv2,terres2,seq2,ncs2,sbs2)	
+# #Get CAs, CBs, native contacts and salt bridges for final structure
+# structure=parser.get_structure('Final',PDBname2)
+# cas2=[];casv2=[];cbs2=[];cbsv2=[];terres2=[];seq2=[];ncs2=[];sbs2=[]
+# pdb2sop(structure,cas2,casv2,cbs2,cbsv2,terres2,seq2,ncs2,sbs2)	
 
 print "Native Contacts in starting structure: ", len(ncs)
-print "Native Contacts in final structure: ", len(ncs2)
+#print "Native Contacts in final structure: ", len(ncs2)
 print "Salt bridges: ", len(sbs)
 
 Naa=len(cas); #Number of residues
@@ -152,6 +157,12 @@ f.write("RandomSeed 1234\n")
 f.write("KernelBlockSize 512\n")
 
 f.write("%d\n" % Naa) #Number of residues
+
+f.write("%d\n" % Nch)  #Number of chains
+#Chain starts
+for ter in terres[:-1]:
+	f.write("%d\n" % (ter+1))
+
 f.write("%d\n" % Nb)  #Number of bonds
 
 #Bonds
@@ -165,16 +176,25 @@ f.write("%d\n" % len(ncs))
 for nc in ncs:
 	f.write("%d %d %f %f\n" % (nc[0],nc[1],nc[2],nc[3]))
 
-#Native contacts of final structure
-f.write("%d\n" % len(ncs2))
-for nc in ncs2:
-	f.write("%d %d %f %f\n" % (nc[0],nc[1],nc[2],nc[3]))
+# #Native contacts of final structure
+# f.write("%d\n" % len(ncs2))
+# for nc in ncs2:
+# 	f.write("%d %d %f %f\n" % (nc[0],nc[1],nc[2],nc[3]))
 
 #Sigmas for soft sphere repulsion				
 for aa in seq:
 	f.write('%f\n' % sbb)
 for aa in seq:
 	f.write('%f\n' % sss[aa])
+
+# #Exclusions from soft shpere interactions (additional to bonded beads: ss of neighboring residues, bs to ss of neighboring residues)
+# f.write("%d\n" % (2*(Naa-0*Nch)))
+# for i in range(Naa):
+# 	#f.write("%d %d\n" % (i,i+Naa))
+# 	#if not i in terres:
+# 		#f.write("%d %d\n" % (i,i+1))
+# 	f.write("%d %d %f\n" % (i,i+Naa+1,0))
+# 	f.write("%d %d %f\n" % (i+Naa,i+Naa+1,0))
 
 #Salt bridges	
 f.write("%d\n" % len(sbs))

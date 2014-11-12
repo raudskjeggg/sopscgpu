@@ -94,6 +94,14 @@ public:
         }
     }
     
+    void PrintReadingStatement(int N, std::string s) {
+        printf(("Reading "+s+" list (%d)\n").c_str(),N);
+    }
+    
+    void PrintReadError(int i, int N, std::string s) {
+        printf(("Premature end of file at %d/%d "+s+" read\n").c_str(),i,N);
+    }
+    
     InteractionList<T>() {};
 
 };
@@ -108,12 +116,12 @@ public:
         AllocateOnDevice(msg);
         AllocateOnHost();
         
-        printf("Reading bond list of %d bonds\n",Nb);
+        PrintReadingStatement(Nb,msg);
         for (int k=0; k<Nb; k++) {
             int i,j;
             bond bk;
             if (fscanf(ind,"%d %d %f", &i,&j,&(bk.l0))==EOF)
-                printf("Premature end of file at line %d", k);
+                PrintReadError(k,Nb,msg);
             
             for (int itraj=0; itraj<ntraj; itraj++) {
                 
@@ -151,12 +159,12 @@ public:
         AllocateOnDevice(msg);
         AllocateOnHost();
         
-        printf("Reading %d native contacts\n",Nnc);
+        PrintReadingStatement(Nnc,msg);
         for (int k=0; k<Nnc; k++) {
             int i,j;
             float r0,eps;
             if (fscanf(ind,"%d %d %f %f", &i,&j,&r0,&eps)==EOF)
-                printf("Premature end of file at line %d", k);
+                PrintReadError(k,Nnc,msg);
             
             nc nck;
             nck.r02=r0*r0;
@@ -196,13 +204,13 @@ public:
         AllocateOnDevice(msg);
         AllocateOnHost();
         
-        printf("Reading %d salt bridges\n",Nsb);
+        PrintReadingStatement(Nsb,msg);
         for (int k=0; k<Nsb; k++) {
             int i,j;
             float qiqj;
             bond sbk;
             if (fscanf(ind,"%d %d %f", &i,&j,&qiqj)==EOF)
-                printf("Premature end of file at line %d", k);
+                PrintReadError(k,Nsb,msg);
             
             for (int itraj=0; itraj<ntraj; itraj++) {
                 

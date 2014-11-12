@@ -95,22 +95,36 @@ int main(int argc, char *argv[]){
     printf("Number of amino acid residues: %d\n",Naa);
     int N=2*Naa*ntraj; //Number of beads
     
+    int Nch;    //Number of chains
+    fscanf(ind,"%d",&Nch);
+    printf("Number of protein chains: %d\n",Nch);
+    chainstarts_h[0]=Nch-1;
+    for (int i=1; i<Nch; i++) {
+        int cstart;
+        fscanf(ind,"%d",&cstart);
+        chainstarts_h[i]=cstart;
+        printf("%d\n",cstart);
+    }
+    cudaMemcpyToSymbol(chainstarts_c, &chainstarts_h, 100*sizeof(int), 0, cudaMemcpyHostToDevice);
+    
+    
 // Read bonds and build map, allocate and copy to device
     int Nb; //Number of bonds
     fscanf(ind,"%d",&Nb);
-    InteractionListBond bondlist(ind,N/ntraj,MaxBondsPerAtom,Nb,"covalent bonds",ntraj);
+    InteractionListBond bondlist(ind,N/ntraj,MaxBondsPerAtom,Nb,"covalent bond",ntraj);
 
 // Read native contacts and build map for initial structure, allocate and copy to device
     int Nnc;  //Number of native contacts (initial)
     fscanf(ind,"%d",&Nnc);
-    InteractionListNC nclist(ind,N/ntraj,MaxNCPerAtom,Nnc,"native contacts (starting)",ntraj);
+    InteractionListNC nclist(ind,N/ntraj,MaxNCPerAtom,Nnc,"native contact (starting)",ntraj);
     
 // Read native contacts and build map for target structure, allocate and copy to device
-    int Nnc2;       //Number of native contacts (target)
-    fscanf(ind,"%d",&Nnc2);
-    InteractionListNC nclist2(ind,N/ntraj,MaxNCPerAtom,Nnc2,"native contacts (target)",ntraj);
+//    int Nnc2;       //Number of native contacts (target)
+//    fscanf(ind,"%d",&Nnc2);
+//    InteractionListNC nclist2(ind,N/ntraj,MaxNCPerAtom,Nnc2,"native contact (target)",ntraj);
     
 //Read sigmas for non-native and neighboring soft sphere repulsion
+    printf("Reading sigmas\n");
     float *sig_h, *sig_d;
     sig_h=(float*)malloc(N*sizeof(float));
     cudaMalloc((void**)&sig_d,N*sizeof(float));
@@ -126,11 +140,16 @@ int main(int argc, char *argv[]){
     cudaMemcpy(sig_d, sig_h, N*sizeof(float), cudaMemcpyHostToDevice);
     cudaBindTexture(0, sig_t, sig_d, N*sizeof(float));
     
+//// Read soft-sphere interaction exclusions (like side-chains of neigboring beads) and build map, allocate and copy to device
+//    int Nexc; //Number of exclusions
+//    fscanf(ind,"%d",&Nexc);
+//    InteractionListBond ssel(ind,N/ntraj,MaxBondsPerAtom,Nexc,"additional soft-sphere exclusion",ntraj);
+
 // Read salt bridges
     //Number of salt bridges
     int Nsb;
     fscanf(ind,"%d",&Nsb);
-    InteractionListSB SaltBridgeList(ind,N/ntraj,MaxNeighbors,Nsb,"electrostatic interactions",ntraj);
+    InteractionListSB SaltBridgeList(ind,N/ntraj,MaxNeighbors,Nsb,"electrostatic interaction",ntraj);
     
 //Allocate coordinates arrays on device and host
     float4 *r_h,*r_d;
@@ -138,20 +157,20 @@ int main(int argc, char *argv[]){
     cudaMalloc((void**)&r_d, N*sizeof(float4));
     
 // Read starting coordinates
-    
+    printf("Reading initial coordinates\n");
     ////readcoord(ind, r_h, N);
-    //readcoord(ind, r_h, N/ntraj, ntraj);
+    readcoord(ind, r_h, N/ntraj, ntraj);
     
-//READ FROM SEPARATE FILE
-    FILE *initl;
-   std::string initlfilename="start.init";
-    if((initl = fopen(initlfilename.c_str(), "r"))==NULL) {
-        printf("Cannot open file %s \n",initlfilename.c_str()) ;
-        exit(1) ;
-    }
-    //readxyz(initl, r_h, N);
-    readxyz(initl, r_h, N/ntraj, ntraj);
-    fclose(initl);
+////READ FROM SEPARATE FILE
+//    FILE *initl;
+//   std::string initlfilename="start.init";
+//    if((initl = fopen(initlfilename.c_str(), "r"))==NULL) {
+//        printf("Cannot open file %s \n",initlfilename.c_str()) ;
+//        exit(1) ;
+//    }
+//    //readxyz(initl, r_h, N);
+//    readxyz(initl, r_h, N/ntraj, ntraj);
+//    fclose(initl);
     
     //Copy coordinates to device
     cudaMemcpy(r_d, r_h, N*sizeof(float4), cudaMemcpyHostToDevice);
@@ -179,6 +198,7 @@ int main(int argc, char *argv[]){
 //Initialize Soft Sphere repulsion force field parameters;
     ss_h.Minus6eps=-6.0*ss_h.eps;
     ss_h.Rcut2=ss_h.Rcut*ss_h.Rcut;
+    ss_h.Rcut2Outer=ss_h.RcutOuter*ss_h.RcutOuter;
     ss_h.CutOffFactor2inv=1.0f/ss_h.CutOffFactor/ss_h.CutOffFactor;
     ss_h.CutOffFactor6inv=ss_h.CutOffFactor2inv*ss_h.CutOffFactor2inv*ss_h.CutOffFactor2inv;
     ss_h.CutOffFactor8inv=ss_h.CutOffFactor6inv*ss_h.CutOffFactor2inv;
@@ -195,14 +215,21 @@ int main(int argc, char *argv[]){
     cudaMemcpyToSymbol(els_c, &els_h, sizeof(ElStatPar), 0, cudaMemcpyHostToDevice);
     checkCUDAError("Electrostatic parameters init");
     
+
     
 //Neighbor list allocate
     InteractionList<int> nl;
     nl.N=N;
-    nl.Nmax=MaxNeighbors;
+    nl.Nmax=MaxSoftSphere;
     nl.AllocateOnDevice("neighbor list");
     nl.AllocateOnHost();
     //cudaBindTexture(0, neibmap_t, nl.map_d, nl.N*nl.Nmax*sizeof(int));
+    
+//    InteractionList<int> nlo;
+//    nlo.N=N;
+//    nlo.Nmax=MaxSoftSphere;
+//    nlo.AllocateOnDevice("outer neighbor list");
+//    nlo.AllocateOnHost();
     
     
     
@@ -221,12 +248,21 @@ int main(int argc, char *argv[]){
     printf("t\tTraj#\tE_TOTAL\t\tE_POTENTIAL\tE_SoftSpheres\tE_NatCont\tE_ElStat\tE_FENE\t\t~TEMP\t<v>*neighfreq/DeltaRcut\n");
     //float Delta=0.;
     int stride=neighfreq;
+    
     for (int t=0;t<NumSteps;t+=stride) {
         
         bool CoordCopiedToHost=false;
         
+//        if ((t % (3*neighfreq))==0) {
+//            SoftSphereNeighborList<<<BLOCKS,THREADS>>>(r_d,nlo,bondlist,N/ntraj);
+//            checkCUDAError("Outer Neighbor List");
+//        }
+        
         if ((t % neighfreq)==0) {
-            SoftSphereNeighborListMultTraj<<<BLOCKS,THREADS>>>(r_d,nl,N/ntraj);
+            //SoftSphereNeighborList<<<BLOCKS,THREADS>>>(r_d,nl);
+            SoftSphereNeighborList<<<BLOCKS,THREADS>>>(r_d,nl,N/ntraj);
+            //SoftSphereNeighborList<<<BLOCKS,THREADS>>>(r_d,nl,bondlist,N/ntraj);
+            //SoftSphereNeighborList<<<BLOCKS,THREADS>>>(r_d,nlo,nl);
             checkCUDAError("Neighbor List");
         }
         
@@ -563,6 +599,7 @@ int main(int argc, char *argv[]){
     bondlist.FreeOnDevice("bonds");
     SaltBridgeList.FreeOnDevice("salt bridges");
     nl.FreeOnDevice("neighbor list");
+    //nlo.FreeOnDevice("outer neighbor list");
     cudaDeviceReset();
 }
 

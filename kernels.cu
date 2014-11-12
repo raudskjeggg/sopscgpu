@@ -383,7 +383,7 @@ __global__ void DebyeHuckelEnergy(float4* r, InteractionList<bond> list) {
 }
 
 
-__global__ void SoftSphereNeighborList(float4* r, InteractionList<int> list) {
+__global__ void SoftSphereNeighborList(float4* r, InteractionList<int> list, int Ntraj) {
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     if (i>=list.N) return;
     
@@ -397,16 +397,26 @@ __global__ void SoftSphereNeighborList(float4* r, InteractionList<int> list) {
         r2.y-=ri.y;
         r2.z-=ri.z;
         r2.w=r2.x*r2.x+r2.y*r2.y+r2.z*r2.z;
+        if (r2.w>ss_c.Rcut2)
+            continue;
+        if (i==j)
+            continue;
+        bool atchainstart=false;
+        for (int chain=1; chain<chainstarts_c[0]; chain++) {
+            atchainstart+=(max(i,j)==chainstarts_c[chain]);
+        }
         if (
-            (r2.w<ss_c.Rcut2) and
             (
-             (abs(j-i)>1) or
-             ((abs(j-i)>0) and ((i>=list.N/2) or (j>=list.N/2)))  //bb with ss or ss with ss on neighboring residues (this actually excludes terminal beads of different chains, that are not bound)
-             ) and
-            ((j+list.N/2)!=i) and                                 //exclude covalently bonded bb and ss beads
-            ((i+list.N/2)!=j)
+             (abs(j-i)>1) //include all-nonneighboring beads
+            or
+             ((max(i,j) % Ntraj)>=Ntraj/2) // if one is sidechain, it interacts with any other side chain or backbone
+            or atchainstart //if one bead is the start of a chain, it interacts with any other bead
+            )
+            and
+             (abs(j-i)!=Ntraj/2) //exclude bb and sc of the same residue
+            and
+             ((i/Ntraj)==(j/Ntraj)) //exclude beads belonging to different trajectories/replicas
             ) {
-            
             list.map_d[neighbors*list.N+i]=j;
             neighbors++;
         }
@@ -415,13 +425,14 @@ __global__ void SoftSphereNeighborList(float4* r, InteractionList<int> list) {
     
 }
 
-__global__ void SoftSphereNeighborListMultTraj(float4* r, InteractionList<int> list, int Ntraj) {
+__global__ void SoftSphereNeighborList(float4* r, InteractionList<int> list, InteractionList<bond> blist, int Ntraj) {
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     if (i>=list.N) return;
     
     //float4 ri=r[i];
     float4 ri=tex1Dfetch(r_t,i);
     int neighbors=0;
+    int Nb=blist.count_d[i];
     for (int j=0;j<list.N;j++) {
         //float4 r2=r[j];
         float4 r2=tex1Dfetch(r_t,j);
@@ -429,17 +440,15 @@ __global__ void SoftSphereNeighborListMultTraj(float4* r, InteractionList<int> l
         r2.y-=ri.y;
         r2.z-=ri.z;
         r2.w=r2.x*r2.x+r2.y*r2.y+r2.z*r2.z;
-        if (
-            (r2.w<ss_c.Rcut2) and
-            (
-             (abs(j-i)>1) or
-             ((abs(j-i)>0) and (((i % Ntraj)>=Ntraj/2) or ((j % Ntraj)>=Ntraj/2)))  //bb with ss or ss with ss on neighboring residues (this actually excludes terminal beads of different chains, that are not bound)
-             ) and
-            ((j+Ntraj/2)!=i) and                                 //exclude covalently bonded bb and ss beads
-            ((i+Ntraj/2)!=j) and
-            ((i/Ntraj)==(j/Ntraj))								 //make sure beads belong to the same trajectory/replica
-            ) {
-            
+        
+        //Check that i and j are not bonded by looping over bonds of i
+        bool nonbonded=true;
+        for (int ib=0; ib<Nb; ib++) {
+            bond b=blist.map_d[ib*blist.N+i];
+            if (b.i2==j) nonbonded=false;
+        }
+        
+        if ((r2.w<ss_c.Rcut2Outer) and (i!=j) and (nonbonded) and (i/Ntraj)==(j/Ntraj)) {
             list.map_d[neighbors*list.N+i]=j;
             neighbors++;
         }
