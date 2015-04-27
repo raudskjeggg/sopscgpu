@@ -155,6 +155,7 @@ f.write("TrajectoryWriteFrequency 10000\n")
 f.write("Trajectories 1\n")
 f.write("RandomSeed 1234\n")
 f.write("KernelBlockSize 512\n")
+f.write("ExternalForces 1\n")
 
 f.write("%d\n" % Naa) #Number of residues
 
@@ -199,7 +200,16 @@ for aa in seq:
 #Salt bridges	
 f.write("%d\n" % len(sbs))
 for sb in sbs:
-	f.write("%d %d %f\n" % (sb[0],sb[1],sb[2]))	
+	f.write("%d %d %f\n" % (sb[0],sb[1],sb[2]))
+	
+#External forces
+point1=56
+point2=112
+force=15 #pN
+f.write("%d\n" % point1) 
+f.write("%f %f %f\n" % (force/70.,0,0))
+f.write("%d\n" % point2) 
+f.write("%f %f %f\n" % (-force/70.,0,0))
 
 #Starting coordinates
 for ac in vstack([array(cas),array(cbs)]):

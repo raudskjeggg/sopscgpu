@@ -12,19 +12,21 @@
 #include<stdio.h>
 #include "cuda.h"
 
-int BLOCK_SIZE=512;
+int BLOCK_SIZE=512; //For launching GPU kernels
+
+//For creating neighbor lists, bond list, native contact list
 int const MaxBondsPerAtom=4;
 int const MaxNCPerAtom=128;
 int const MaxNeighbors=1024;
 int const MaxSoftSphere=8192;
 
-float h=0.05;
-float zeta=50.;
-float kT=0.59;
+float h=0.05; //timestep
+float zeta=50.; //friction coefficient
+float kT=0.59; //temperature
 
-float NumSteps=3e+4;
-int const StartingStateEquilSteps=20000;//1000000;
-int const SwitchingSteps=10000;//10000;
+float NumSteps=3e+4; //Total steps in trajectory
+int const StartingStateEquilSteps=20000;//1000000; //For transition, starting structure
+int const SwitchingSteps=10000;//10000; // Time for switching Hamiltionian
 int const SwitchingStride=10;
 
 int neighfreq=10;
@@ -32,6 +34,8 @@ int outputfreq=1000;
 int trajfreq=10000;
 int ntraj=1;
 int seed=1234;
+
+int extforces;  //Whether external forces are applied to any atoms
 
 struct bond { //For bond map
     int i2;

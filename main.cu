@@ -53,7 +53,7 @@ int main(int argc, char *argv[]){
     }
 
     
-////////// READING INPUT FILE
+    ////////// READING INPUT FILE
     char comments[80];
     fscanf(ind,"%s %e",comments,&NumSteps);
     printf("%s %e\n",comments,NumSteps);
@@ -75,6 +75,8 @@ int main(int argc, char *argv[]){
     printf("%s %d\n",comments,seed);
     fscanf(ind,"%s %d",comments,&BLOCK_SIZE);
     printf("%s %d\n",comments,BLOCK_SIZE);
+    fscanf(ind,"%s %d",comments,&extforces);
+    printf("%s %d\n",comments,extforces);
     
     // Initialize trajectory output files
     FILE **traj;
@@ -108,22 +110,22 @@ int main(int argc, char *argv[]){
     cudaMemcpyToSymbol(chainstarts_c, &chainstarts_h, 100*sizeof(int), 0, cudaMemcpyHostToDevice);
     
     
-// Read bonds and build map, allocate and copy to device
+    // Read bonds and build map, allocate and copy to device
     int Nb; //Number of bonds
     fscanf(ind,"%d",&Nb);
     InteractionListBond bondlist(ind,N/ntraj,MaxBondsPerAtom,Nb,"covalent bond",ntraj);
-
-// Read native contacts and build map for initial structure, allocate and copy to device
+    
+    // Read native contacts and build map for initial structure, allocate and copy to device
     int Nnc;  //Number of native contacts (initial)
     fscanf(ind,"%d",&Nnc);
     InteractionListNC nclist(ind,N/ntraj,MaxNCPerAtom,Nnc,"native contact (starting)",ntraj);
     
-// Read native contacts and build map for target structure, allocate and copy to device
+//    // Read native contacts and build map for target structure, allocate and copy to device
 //    int Nnc2;       //Number of native contacts (target)
 //    fscanf(ind,"%d",&Nnc2);
 //    InteractionListNC nclist2(ind,N/ntraj,MaxNCPerAtom,Nnc2,"native contact (target)",ntraj);
     
-//Read sigmas for non-native and neighboring soft sphere repulsion
+    //Read sigmas for non-native and neighboring soft sphere repulsion
     printf("Reading sigmas\n");
     float *sig_h, *sig_d;
     sig_h=(float*)malloc(N*sizeof(float));
@@ -145,18 +147,32 @@ int main(int argc, char *argv[]){
 //    fscanf(ind,"%d",&Nexc);
 //    InteractionListBond ssel(ind,N/ntraj,MaxBondsPerAtom,Nexc,"additional soft-sphere exclusion",ntraj);
 
-// Read salt bridges
+    // Read salt bridges
     //Number of salt bridges
     int Nsb;
     fscanf(ind,"%d",&Nsb);
     InteractionListSB SaltBridgeList(ind,N/ntraj,MaxNeighbors,Nsb,"electrostatic interaction",ntraj);
+           
+    //Read external forces (for stretching experiments)
     
-//Allocate coordinates arrays on device and host
+    float4 *fext_h,fext_d;
+   
+    if (extforces) {
+        cudaMalloc((void**)&fext_d, N*sizeof(float4));
+        cudaMallocHost((void**)&fext_h, N*sizeof(float4));
+        for (int i=0; i<2; i++) {
+            int p1; //Indices of attachment beads
+            fscanf(ind,"%d",&p1);
+            fscanf(ind,"%f %f %f",&fext_h[p1].x,&fext_h[p1].y,&fext_h[p1].z);
+        }
+    }
+    
+    //Allocate coordinates arrays on device and host
     float4 *r_h,*r_d;
     cudaMallocHost((void**)&r_h, N*sizeof(float4));
     cudaMalloc((void**)&r_d, N*sizeof(float4));
     
-// Read starting coordinates
+    // Read starting coordinates
     printf("Reading initial coordinates\n");
     ////readcoord(ind, r_h, N);
     readcoord(ind, r_h, N/ntraj, ntraj);
@@ -176,7 +192,7 @@ int main(int argc, char *argv[]){
     cudaMemcpy(r_d, r_h, N*sizeof(float4), cudaMemcpyHostToDevice);
     cudaBindTexture(0, r_t, r_d, N*sizeof(float4));
     
-//Allocate forces arrays on device <and host>
+    //Allocate forces arrays on device <and host>
     float4 *f_d;
 	cudaMalloc((void**)&f_d, N*sizeof(float4));
     
@@ -184,10 +200,10 @@ int main(int argc, char *argv[]){
     //cudaMallocHost((void**)&f_h, N*sizeof(float4));
 
     fclose(ind);
-//////////////END READING INPUT FILE//////
+    //////////////END READING INPUT FILE//////
 
 
-//Initialize Brownian Dynamics integrator parameters
+    //Initialize Brownian Dynamics integrator parameters
 	bd_h.kT=kT;
     bd_h.hoz=h/zeta;
     bd_h.Gamma=sqrt(2*(bd_h.hoz)*(bd_h.kT));
@@ -195,8 +211,9 @@ int main(int argc, char *argv[]){
     checkCUDAError("Brownian dynamics parameters init");
     
     
-//Initialize Soft Sphere repulsion force field parameters;
+    //Initialize Soft Sphere repulsion force field parameters;
     ss_h.Minus6eps=-6.0*ss_h.eps;
+    
     ss_h.Rcut2=ss_h.Rcut*ss_h.Rcut;
     ss_h.Rcut2Outer=ss_h.RcutOuter*ss_h.RcutOuter;
     ss_h.CutOffFactor2inv=1.0f/ss_h.CutOffFactor/ss_h.CutOffFactor;
@@ -205,19 +222,19 @@ int main(int argc, char *argv[]){
     cudaMemcpyToSymbol(ss_c, &ss_h, sizeof(SoftSphere), 0, cudaMemcpyHostToDevice);
     checkCUDAError("Soft sphere parameters init");
     
-//Initialize FENE parameters
+    //Initialize FENE parameters
     fene_h.R02=fene_h.R0*fene_h.R0;
     fene_h.kR0=fene_h.R0*fene_h.k;
     cudaMemcpyToSymbol(fene_c, &fene_h, sizeof(FENE), 0, cudaMemcpyHostToDevice);
     checkCUDAError("FENE parameters init");
     
-//Initialize electrostatic parameters
+    //Initialize electrostatic parameters
     cudaMemcpyToSymbol(els_c, &els_h, sizeof(ElStatPar), 0, cudaMemcpyHostToDevice);
     checkCUDAError("Electrostatic parameters init");
     
 
     
-//Neighbor list allocate
+    //Neighbor list allocate
     InteractionList<int> nl;
     nl.N=N;
     nl.Nmax=MaxSoftSphere;
@@ -233,7 +250,7 @@ int main(int argc, char *argv[]){
     
     
     
-//Simulation
+    //Simulation
     
     int THREADS=BLOCK_SIZE;
     int BLOCKS=N/THREADS+1;
