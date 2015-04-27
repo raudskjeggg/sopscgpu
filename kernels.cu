@@ -14,6 +14,12 @@ __global__ void force_flush (float4 *f, int N) {
     f[id].z=0.;
 }
 
+__global__ void force_flush (float4 *f, float4 *f_ext, int N) {
+    int id = blockIdx.x*blockDim.x + threadIdx.x;
+    if (id>=N) return;
+    f[id]=f_ext[id];
+}
+
 __global__ void rand_init (int seed, curandStatePhilox4_32_10_t* states) {
 	int id = blockIdx.x*blockDim.x + threadIdx.x;
 	curand_init(seed, id, 0, &states[id]);

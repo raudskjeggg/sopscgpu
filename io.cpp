@@ -88,3 +88,25 @@ void readxyz(FILE* ind, float4* r, int N, int ntraj) {
             r[itraj*N+i]=r[i];
     }
 }
+
+//Read external forces from input file, multiple trajectories
+void readextforce(FILE* ind, float4* f, int N, int ntraj) {
+    
+    for (int i=0; i<N*ntraj; i++) {
+        f[i].x=0.;
+        f[i].y=0.;
+        f[i].z=0.;
+        f[i].w=0.;
+    }
+    
+    for (int i=0; i<2; i++) {
+        int p1; //Indices of attachment beads
+        fscanf(ind,"%d",&p1);
+        fscanf(ind,"%f %f %f",&f[p1].x,&f[p1].y,&f[p1].z);
+        for (int itraj=1; itraj<ntraj; itraj++)
+            f[itraj*N+p1]=f[p1];
+        printf("Force of {%f %f %f} applied to bead %d\n", f[p1].x,f[p1].y,f[p1].z,p1);
+    
+    }
+
+}

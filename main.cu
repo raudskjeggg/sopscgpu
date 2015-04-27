@@ -28,6 +28,8 @@ void readxyz(FILE* ind, float4* r, int N);
 
 void readxyz(FILE* ind, float4* r, int N, int ntraj);
 
+void readextforce(FILE* ind, float4* f, int N, int ntraj);
+
 
 
 
@@ -155,16 +157,13 @@ int main(int argc, char *argv[]){
            
     //Read external forces (for stretching experiments)
     
-    float4 *fext_h,fext_d;
+    float4 *fext_h, *fext_d;
    
     if (extforces) {
         cudaMalloc((void**)&fext_d, N*sizeof(float4));
         cudaMallocHost((void**)&fext_h, N*sizeof(float4));
-        for (int i=0; i<2; i++) {
-            int p1; //Indices of attachment beads
-            fscanf(ind,"%d",&p1);
-            fscanf(ind,"%f %f %f",&fext_h[p1].x,&fext_h[p1].y,&fext_h[p1].z);
-        }
+        readextforce(ind, fext_h, N/ntraj, ntraj);
+        cudaMemcpy(fext_d, fext_h, N*sizeof(float4), cudaMemcpyHostToDevice);
     }
     
     //Allocate coordinates arrays on device and host
@@ -262,7 +261,7 @@ int main(int argc, char *argv[]){
     rand_init<<<BLOCKS,THREADS>>>(seed,RNGStates_d);
     checkCUDAError("Random number initializion");
    
-    printf("t\tTraj#\tE_TOTAL\t\tE_POTENTIAL\tE_SoftSpheres\tE_NatCont\tE_ElStat\tE_FENE\t\t~TEMP\t<v>*neighfreq/DeltaRcut\n");
+    printf("t\tTraj#\tRee\t\tE_POTENTIAL\tE_SoftSpheres\tE_NatCont\tE_ElStat\tE_FENE\t\t~TEMP\t<v>*neighfreq/DeltaRcut\n");
     //float Delta=0.;
     int stride=neighfreq;
     
@@ -359,15 +358,15 @@ int main(int argc, char *argv[]){
             //    for (int i=itraj*N/ntraj; i<(itraj+1)*N/ntraj; i++)
             //        Eel[itraj]+=r_h[i].w;
             //}
-            float* Epot;
-            Epot=(float*)malloc(ntraj*sizeof(float));
-            float* Etot;
-            Etot=(float*)malloc(ntraj*sizeof(float));
+            
             
             for (int itraj=0; itraj<ntraj; itraj++) {
-                Epot[itraj]=(Efene[itraj]+Ess[itraj]+Enat[itraj]+Eel[itraj])/2.;
-                Etot[itraj]=Epot[itraj]+Ekin[itraj];
-                printf("%d\t%d\t%e\t%e\t%e\t%e\t%e\t%e\t%f\t%f\n",t,itraj,Etot[itraj],Epot[itraj],Ess[itraj]/2.,Enat[itraj]/2.,Eel[itraj]/2.,Efene[itraj]/2.,Ekin[itraj]*ntraj/(N*6.*bd_h.hoz/503.6),sqrt(Ekin[itraj]*ntraj/N)*neighfreq/(ss_h.Rcut-ss_h.MaxSigma*ss_h.CutOffFactor));
+                float Epot=(Efene[itraj]+Ess[itraj]+Enat[itraj]+Eel[itraj])/2.;
+                float Etot=Epot+Ekin[itraj];
+                float4 rN=r_h[itraj*N/ntraj+2*Naa];
+                float4 r0=r_h[itraj*N/ntraj];
+                float ree=sqrt((rN.x-r0.x)*(rN.x-r0.x)+(rN.y-r0.y)*(rN.y-r0.y)+(rN.z-r0.z)*(rN.z-r0.z));
+                printf("%d\t%d\t%f\t%f\t%e\t%e\t%e\t%e\t%f\t%f\n",t,itraj,ree,Epot,Ess[itraj]/2.,Enat[itraj]/2.,Eel[itraj]/2.,Efene[itraj]/2.,Ekin[itraj]*ntraj/(N*6.*bd_h.hoz/503.6),sqrt(Ekin[itraj]*ntraj/N)*neighfreq/(ss_h.Rcut-ss_h.MaxSigma*ss_h.CutOffFactor));
             }
             
         }
@@ -384,7 +383,10 @@ int main(int argc, char *argv[]){
         
         for (int tongpu=0; tongpu<stride; tongpu++) {
             
-            force_flush<<<BLOCKS,THREADS>>>(f_d,N);
+            //if (extforces)
+                force_flush<<<BLOCKS,THREADS>>>(f_d,fext_d,N);
+//            else
+//                force_flush<<<BLOCKS,THREADS>>>(f_d,N);
             checkCUDAError("Force flush");
             
             FENEForce<<<BLOCKS,THREADS>>>(r_d,f_d,bondlist);

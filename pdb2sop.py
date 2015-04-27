@@ -203,9 +203,9 @@ for sb in sbs:
 	f.write("%d %d %f\n" % (sb[0],sb[1],sb[2]))
 	
 #External forces
-point1=56
-point2=112
-force=15 #pN
+point1=Naa;
+point2=106;#2*Naa-1;
+force=15. #pN
 f.write("%d\n" % point1) 
 f.write("%f %f %f\n" % (force/70.,0,0))
 f.write("%d\n" % point2) 
