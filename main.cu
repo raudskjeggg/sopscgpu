@@ -24,9 +24,9 @@ void readcoord(FILE* ind, float4* r, int N);
 
 void readcoord(FILE* ind, float4* r, int N, int ntraj);
 
-void readxyz(FILE* ind, float4* r, int N);
+void readxyz(FILE* ind, float4* r, int N, int nskipframes);
 
-void readxyz(FILE* ind, float4* r, int N, int ntraj);
+void readxyz(FILE* ind, float4* r, int N, int ntraj, int nskipframes);
 
 void readextforce(FILE* ind, float4* f, int N, int ntraj);
 
@@ -37,14 +37,9 @@ int main(int argc, char *argv[]){
     
     if (argc<2) {
         std::string progname=argv[0];
-        printf("Usage: %s inputfilename\n",progname.c_str());
+        printf("Usage: %s inputfilename [startpositionsfilename nskipframes]\n",progname.c_str());
         exit(1);
     }
-    
-    cudaDeviceProp deviceProp;
-    cudaGetDeviceProperties(&deviceProp, 0);
-    cudaSetDevice(0);
-    cudaDeviceReset();
     
     std::string filename=argv[1];
     
@@ -53,7 +48,18 @@ int main(int argc, char *argv[]){
         printf("Cannot open file %s \n",filename.c_str()) ;
         exit(1) ;
     }
-
+    
+    std::string initlfilename;
+    int nskipframes=0;
+    if (argc>2)
+        initlfilename=argv[2];
+    if (argc>3)
+        nskipframes=strtol(argv[3], NULL, 10);
+    
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, 0);
+    cudaSetDevice(0);
+    cudaDeviceReset();
     
     ////////// READING INPUT FILE
     char comments[80];
@@ -172,20 +178,26 @@ int main(int argc, char *argv[]){
     cudaMalloc((void**)&r_d, N*sizeof(float4));
     
     // Read starting coordinates
-    printf("Reading initial coordinates\n");
-    ////readcoord(ind, r_h, N);
-    readcoord(ind, r_h, N/ntraj, ntraj);
+    printf("Reading initial coordinates ");
+
     
-////READ FROM SEPARATE FILE
-//    FILE *initl;
-//   std::string initlfilename="start.init";
-//    if((initl = fopen(initlfilename.c_str(), "r"))==NULL) {
-//        printf("Cannot open file %s \n",initlfilename.c_str()) ;
-//        exit(1) ;
-//    }
-//    //readxyz(initl, r_h, N);
-//    readxyz(initl, r_h, N/ntraj, ntraj);
-//    fclose(initl);
+    //READ FROM SEPARATE FILE
+    if (argc>2) {
+        printf(" from %s\n",initlfilename.c_str());
+        FILE *initl;
+        if((initl = fopen(initlfilename.c_str(), "r"))==NULL) {
+            printf("Cannot open file %s \n",initlfilename.c_str()) ;
+            exit(1) ;
+        }
+        //readxyz(initl, r_h, N);
+        readxyz(initl, r_h, N/ntraj, ntraj, nskipframes);
+        fclose(initl);
+    } else {
+    //READ FROM INPUT FILE
+        printf(" from %s\n",filename.c_str());
+        //readcoord(ind, r_h, N);
+        readcoord(ind, r_h, N/ntraj, ntraj);
+    }
     
     //Copy coordinates to device
     cudaMemcpy(r_d, r_h, N*sizeof(float4), cudaMemcpyHostToDevice);
@@ -261,7 +273,7 @@ int main(int argc, char *argv[]){
     rand_init<<<BLOCKS,THREADS>>>(seed,RNGStates_d);
     checkCUDAError("Random number initializion");
    
-    printf("t\tTraj#\tRee\t\tE_POTENTIAL\tE_SoftSpheres\tE_NatCont\tE_ElStat\tE_FENE\t\t~TEMP\t<v>*neighfreq/DeltaRcut\n");
+    printf("t\tTraj#\tRee(nm)\t\tE_POTENTIAL\tE_SoftSpheres\tE_NatCont\tE_ElStat\tE_FENE\t\t~TEMP\t<v>*neighfreq/DeltaRcut\n");
     //float Delta=0.;
     int stride=neighfreq;
     
@@ -363,9 +375,9 @@ int main(int argc, char *argv[]){
             for (int itraj=0; itraj<ntraj; itraj++) {
                 float Epot=(Efene[itraj]+Ess[itraj]+Enat[itraj]+Eel[itraj])/2.;
                 float Etot=Epot+Ekin[itraj];
-                float4 rN=r_h[itraj*N/ntraj+2*Naa];
-                float4 r0=r_h[itraj*N/ntraj];
-                float ree=sqrt((rN.x-r0.x)*(rN.x-r0.x)+(rN.y-r0.y)*(rN.y-r0.y)+(rN.z-r0.z)*(rN.z-r0.z));
+                float4 rN=r_h[itraj*N/ntraj+2*Naa-1];
+                float4 r0=r_h[itraj*N/ntraj+Naa];
+                float ree=sqrt((rN.x-r0.x)*(rN.x-r0.x)+(rN.y-r0.y)*(rN.y-r0.y)+(rN.z-r0.z)*(rN.z-r0.z))/10.;
                 printf("%d\t%d\t%f\t%f\t%e\t%e\t%e\t%e\t%f\t%f\n",t,itraj,ree,Epot,Ess[itraj]/2.,Enat[itraj]/2.,Eel[itraj]/2.,Efene[itraj]/2.,Ekin[itraj]*ntraj/(N*6.*bd_h.hoz/503.6),sqrt(Ekin[itraj]*ntraj/N)*neighfreq/(ss_h.Rcut-ss_h.MaxSigma*ss_h.CutOffFactor));
             }
             

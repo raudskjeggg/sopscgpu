@@ -68,8 +68,17 @@ void readcoord(FILE* ind, float4* r, int N, int ntraj) {
 }
 
 //Read coordinates from XYZ file
-void readxyz(FILE* ind, float4* r, int N) {
-    char name[80];
+void readxyz(FILE* ind, float4* r, int N, int nskipframes) {
+    char name[80],ignore[1024];
+    int Nfromfile;
+    fscanf(ind,"%d",&Nfromfile);
+    if (Nfromfile!=N) {
+        printf("Warning: number of atoms in the XYZ starting file (%d) does not match the number in the input file (%d)\n", Nfromfile, N);
+    }
+    for (int line=0; line<nskipframes*(N+2); line++)
+        fscanf(ind,"%s",ignore);
+    
+    fscanf(ind,"%s",ignore);
     for (int i=0;i<N;i++) {
         if (fscanf(ind,"%s %f %f %f", name, &r[i].x,&r[i].y,&r[i].z)==EOF)
             printf("Premature end of file at line %d", i);
@@ -78,8 +87,18 @@ void readxyz(FILE* ind, float4* r, int N) {
 }
 
 //Read coordinates from XYZ file, multiple trajectories
-void readxyz(FILE* ind, float4* r, int N, int ntraj) {
-    char name[80];
+void readxyz(FILE* ind, float4* r, int N, int ntraj, int nskipframes) {
+    char name[80],ignore[1024];
+    int Nfromfile;
+    fscanf(ind,"%d",&Nfromfile);
+    if (Nfromfile!=N/ntraj) {
+        printf("Warning: number of atoms in the XYZ starting file (%d) does not match the number in the input file (%d)\n", Nfromfile, N/ntraj);
+    }
+    
+    for (int line=0; line<nskipframes*(N+2); line++)
+        fscanf(ind,"%s",ignore);
+    
+    fscanf(ind,"%s",ignore);
     for (int i=0;i<N;i++) {
         if (fscanf(ind,"%s %f %f %f", name, &r[i].x,&r[i].y,&r[i].z)==EOF)
             printf("Premature end of file at line %d", i);
@@ -105,7 +124,7 @@ void readextforce(FILE* ind, float4* f, int N, int ntraj) {
         fscanf(ind,"%f %f %f",&f[p1].x,&f[p1].y,&f[p1].z);
         for (int itraj=1; itraj<ntraj; itraj++)
             f[itraj*N+p1]=f[p1];
-        printf("Force of {%f %f %f} applied to bead %d\n", f[p1].x,f[p1].y,f[p1].z,p1);
+        printf("Force of {%.2f %.2f %.2f} pN applied to bead %d\n", 70*f[p1].x,70*f[p1].y,70*f[p1].z,p1);
     
     }
 
